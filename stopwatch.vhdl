@@ -25,6 +25,9 @@ architecture rtl of stopwatch is
  signal sync_mux1  : std_logic;
  signal sync_mux2  : std_logic;
  signal enpuls_mux : std_logic;
+ signal start_stopp_sync : std_logic;
+ signal nollstallning_sync : std_logic;
+ signal visningslage_sync : std_logic;
  
  signal hundredths : unsigned(3 downto 0);  -- 4 bits for 0-9
  signal carry_hundredths : std_logic;
@@ -37,6 +40,8 @@ signal carry_tens_seconds : std_logic;
 signal minutes : unsigned(3 downto 0);
 signal carry_minutes : std_logic;
 signal tens_minutes : unsigned(2 downto 0);  -- 3 bits for 0-5
+
+signal current_digit : unsigned(2 downto 0) := "000";
 
 type rom is array (0 to 9) of std_logic_vector(6 downto 0);
   constant mem : rom := (
@@ -61,6 +66,10 @@ begin
         sync_hundra2 <= sync_hundra1;
         sync_mux1 <= muxfrekvens;
         sync_mux2 <= sync_mux1;
+        
+        start_stopp_sync <= start_stopp;
+        nollstallning_sync <= nollstallning;
+        visningslage_sync <= visningslage;
     end if;
     end process;
     
@@ -71,11 +80,24 @@ enpuls_mux <= sync_mux1 and not sync_mux2;
 -- Kontroll av LED status (klockan igång eller stoppad)
 process(clk)
  begin
-     if rising_edge(clk) then
+     if reset = '1' then
+        start_stopp_sync <= '0';
+        visningslage_sync <= '0';
+        raknar <= '0';
+     elsif rising_edge(clk) then
          if start_stopp = '1' then
              raknar <= '1';  -- Tänd LED när klockan är igång
          else
              raknar <= '0';  -- Släck LED när klockan är stoppad
+         end if;
+         
+         if nollstallning = '1' then
+            hundredths <= (others => '0');
+            tenths <= (others => '0');
+            seconds <= (others => '0');
+            tens_seconds <= (others => '0');
+            minutes <= (others => '0');
+            tens_minutes <= (others => '0');
          end if;
      end if;
  end process;
@@ -185,5 +207,51 @@ begin
         end if;
     end if;
 end process;
+
+ -- Multiplexing display control based on muxfrekvens
+    process(clk)
+    begin
+        if rising_edge(clk) then
+            if muxfrekvens = '1' then
+                -- Cycle through digits for display, changing which digit is active
+                if current_digit = 0 then
+                    an <= "1110"; -- Activate first digit (minutes or seconds)
+                    if visningslage = '0' then
+                        seg <= mem(to_integer(hundredths));
+                    else
+                        seg <= mem(to_integer(seconds));
+                    end if;
+                elsif current_digit = 1 then
+                    an <= "1101"; -- Activate second digit
+                    if visningslage = '0' then
+                        seg <= mem(to_integer(tenths));
+                    else
+                        seg <= mem(to_integer(tens_seconds));
+                    end if;
+                elsif current_digit = 2 then
+                    an <= "1011"; -- Activate third digit
+                    if visningslage = '0' then
+                        seg <= mem(to_integer(seconds));
+                    else
+                        seg <= mem(to_integer(minutes));
+                    end if;
+                else
+                    an <= "0111"; -- Activate fourth digit
+                    if visningslage = '0' then
+                        seg <= mem(to_integer(tens_seconds));
+                    else
+                        seg <= mem(to_integer(tens_minutes));
+                    end if;
+                end if;
+                
+                -- Cycle to next digit
+                if current_digit = to_unsigned(3,3) then
+                    current_digit <= to_unsigned(0,3);
+                else
+                    current_digit <= current_digit + to_unsigned(1,3);
+                end if;
+            end if;
+        end if;
+    end process;
 
 end architecture;
